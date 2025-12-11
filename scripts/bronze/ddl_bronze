@@ -1,0 +1,100 @@
+/*
+-------
+DDL Script: Create Bronze Tables
+-------
+Script Purpose:
+This script will create tables in the 'bronze' schema, dropping existing tables if they already exist.
+-------
+
+*/
+
+
+CREATE TABLE bronze.online_retail_1(
+	Invoice varchar(50) NOT NULL,
+	StockCode varchar(50) NOT NULL,
+	Description nvarchar(50) NULL,
+	Quantity varchar(50) NULL,
+	InvoiceDate varchar(50) NULL,
+	Price varchar(50) NULL,
+	Customer varchar(50) NULL,
+	Country nvarchar(50) NULL
+) ON [PRIMARY]
+GO
+
+
+CREATE TABLE bronze.online_retail_2(
+	Invoice varchar(50) NOT NULL,
+	StockCode varchar(50) NOT NULL,
+	Description nvarchar(50) NULL,
+	Quantity varchar(50) NULL,
+	InvoiceDate varchar(50) NULL,
+	Price varchar(50) NULL,
+	Customer varchar(50) NULL,
+	Country nvarchar(50) NULL
+) ON [PRIMARY]
+GO
+
+
+EXEC bronze.load_bronze
+
+CREATE OR ALTER PROCEDURE bronze.load_bronze AS
+BEGIN
+	DECLARE @start_time DATETIME, @end_time DATETIME;
+	BEGIN TRY
+
+		PRINT'------------------';
+		PRINT'Loading Bronze Layer';
+		PRINT'------------------';
+
+
+		PRINT'------------------';
+		PRINT'source 1';
+		PRINT'------------------';
+
+		SET @start_time = GETDATE()
+		TRUNCATE TABLE bronze.online_retail_1
+
+		BULK INSERT bronze.online_retail_1
+		FROM 'C:\Users\User\datawarehouseproject\online_retail_1.csv'
+		WITH (
+			FIRSTROW = 2,
+			FIELDTERMINATOR = ',',
+			TABLOCK
+		);
+		SET @end_time = GETDATE();
+		PRINT'>>Load Duration:' + CAST(DATEDIFF(second, @start_time, @end_time) AS NVARCHAR) + 'seconds';
+		PRINT'------------------';
+
+
+
+		PRINT'------------------';
+		PRINT'Source 2';
+		PRINT'------------------';
+		
+
+		SET @start_time = GETDATE();
+		TRUNCATE TABLE bronze.online_retail_2
+
+
+		BULK INSERT bronze.online_retail_2
+		FROM 'C:\Users\User\datawarehouseproject\online_retail_2.csv'
+		WITH (
+			FIRSTROW = 2,
+			FIELDTERMINATOR = ',',
+			TABLOCK
+		);
+		SET @end_time = GETDATE();
+		PRINT'>>Load Duration:' + CAST(DATEDIFF(second, @start_time, @end_time) AS NVARCHAR) + 'seconds';
+		PRINT'------------------';
+
+	END TRY
+	BEGIN CATCH
+		PRINT'------------------';
+		PRINT'Error occured';
+		PRINT'Error Message' + ERROR_MESSAGE();
+		PRINT'Error Message'+ CAST (ERROR_NUMBER()AS NVARCHAR);
+		PRINT'Error Message'+ CAST (ERROR_STATE()AS NVARCHAR);
+		PRINT'------------------';
+	END CATCH
+
+END
