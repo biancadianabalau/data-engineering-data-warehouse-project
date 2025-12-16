@@ -1,0 +1,348 @@
+/*
+-------
+DDL Script: Create Silver Tables
+-------
+Script Purpose:
+This script will create tables in the 'silver' schema, dropping existing tables if they already exist.
+-------
+
+
+
+EXEC silver.load_silver
+
+CREATE OR ALTER PROCEDURE silver.load_silver AS
+BEGIN
+
+TRUNCATE TABLE silver.online_retail_1;
+TRUNCATE TABLE silver.online_retail_2;
+
+    --create tables
+		    IF OBJECT_ID ('silver.online_retail_1', 'U') IS NOT NULL
+			    DROP TABLE silver.online_retail_1;
+			    TRUNCATE TABLE silver.online_retail_1;
+
+		    CREATE TABLE silver.online_retail_1(
+			    uniqueId VARCHAR(50),
+			    Invoice VARCHAR(50),
+			    StockCode VARCHAR(50),
+			    Description VARCHAR(50),
+			    Quantity INT,
+			    InvoiceDate VARCHAR(50),
+			    Time VARCHAR(50),
+			    Price VARCHAR(50),
+			    CustomerID VARCHAR(50),
+			    Country VARCHAR(50),
+			    dwh_create_date DATETIME2 DEFAULT GETDATE()
+		    )
+		    IF OBJECT_ID ('silver.online_retail_2', 'U') IS NOT NULL
+			    DROP TABLE silver.online_retail_2;
+
+		    CREATE TABLE silver.online_retail_2(
+			    uniqueId VARCHAR(50),
+			    Invoice VARCHAR(50),
+			    StockCode VARCHAR(50),
+			    Description VARCHAR(50),
+			    Quantity VARCHAR(50),
+			    InvoiceDate VARCHAR(50),
+			    Time VARCHAR(50),
+			    Price VARCHAR(50),
+			    CustomerID VARCHAR(50),
+			    Country VARCHAR(50),
+			    dwh_create_date DATETIME2 DEFAULT GETDATE()
+		    )
+         
+
+		    TRUNCATE TABLE silver.online_retail_1
+            INSERT INTO silver.online_retail_1 (
+                uniqueId,
+	            Invoice,
+                StockCode,
+	            Description, 
+	            Quantity,
+	            InvoiceDate,
+	            Time,
+	            Price,
+	            CustomerID,
+	            Country 
+            )
+            SELECT 
+                uniqueId,
+	            Invoice,
+                StockCode,
+	            Description,
+	            Quantity,
+	            InvoiceDate,
+	            Time,
+	            Price,
+	            CustomerID,
+	            Country
+            FROM bronze.online_retail_1;
+
+    TRUNCATE TABLE silver.online_retail_2
+            INSERT INTO silver.online_retail_2 (
+                uniqueId,
+	            Invoice,
+                StockCode,
+	            Description, 
+	            Quantity,
+	            InvoiceDate,
+	            Time,
+	            Price,
+	            CustomerID,
+	            Country 
+            )
+            SELECT 
+                uniqueId,
+	            Invoice,
+                StockCode,
+	            Description,
+	            Quantity,
+	            InvoiceDate,
+	            Time,
+	            Price,
+	            CustomerID,
+	            Country
+            FROM bronze.online_retail_2;
+
+
+    SELECT * FROM silver.online_retail_1
+    SELECT * FROM silver.online_retail_2
+
+    --check for nulls or duplicates in primary key
+    --expectation: No Result
+
+    SELECT uniqueId,
+    COUNT(*)
+    FROM silver.online_retail_1
+    GROUP BY uniqueId
+    HAVING COUNT(*)>1 OR uniqueId IS NULL
+
+    SELECT uniqueId,
+    COUNT(*)
+    FROM silver.online_retail_2
+    GROUP BY uniqueId
+    HAVING COUNT(*)>1 OR uniqueId IS NULL
+
+    --check for nulls in all columns
+    SELECT 
+        'silver.online_retail_1' AS TableName,
+        COUNT(*) AS TotalRows,
+        COUNT(CASE WHEN [Invoice] IS NULL THEN 1 END) AS NULL_Count_Invoice,
+        COUNT(CASE WHEN [StockCode] IS NULL THEN 1 END) AS NULL_Count_StockCode,
+        COUNT(CASE WHEN [Description] IS NULL THEN 1 END) AS NULL_Count_Description,
+        COUNT(CASE WHEN [Quantity] IS NULL THEN 1 END) AS NULL_Count_Quantity,
+        COUNT(CASE WHEN [InvoiceDate] IS NULL THEN 1 END) AS NULL_Count_InvoiceDate,
+        COUNT(CASE WHEN [Time] IS NULL THEN 1 END) AS NULL_Count_Time,
+        COUNT(CASE WHEN [Price] IS NULL THEN 1 END) AS NULL_Count_Price,
+        COUNT(CASE WHEN [CustomerID] IS NULL THEN 1 END) AS NULL_Count_CustomerID,
+        COUNT(CASE WHEN [Country] IS NULL THEN 1 END) AS NULL_Count_Country
+    FROM 
+        silver.online_retail_1;
+
+    SELECT 
+        'silver.online_retail_2' AS TableName,
+        COUNT(*) AS TotalRows,
+        COUNT(CASE WHEN [Invoice] IS NULL THEN 1 END) AS NULL_Count_Invoice,
+        COUNT(CASE WHEN [StockCode] IS NULL THEN 1 END) AS NULL_Count_StockCode,
+        COUNT(CASE WHEN [Description] IS NULL THEN 1 END) AS NULL_Count_Description,
+        COUNT(CASE WHEN [Quantity] IS NULL THEN 1 END) AS NULL_Count_Quantity,
+        COUNT(CASE WHEN [InvoiceDate] IS NULL THEN 1 END) AS NULL_Count_InvoiceDate,
+        COUNT(CASE WHEN [Time] IS NULL THEN 1 END) AS NULL_Count_Time,
+        COUNT(CASE WHEN [Price] IS NULL THEN 1 END) AS NULL_Count_Price,
+        COUNT(CASE WHEN [CustomerID] IS NULL THEN 1 END) AS NULL_Count_CustomerID,
+        COUNT(CASE WHEN [Country] IS NULL THEN 1 END) AS NULL_Count_Country
+    FROM 
+        silver.online_retail_2;
+
+    --in silver.online_retail_1: column Description has 2928 nulls and column CustomerID has 107927 nulls
+    --in silver.online_retail_2: column Description has 1454 nulls and column CustomerID has 135080 nulls
+    -- for the columns Descriptions the column was filled through the stockCode column association
+
+    UPDATE T1
+        SET [Description] = T2.Known_Description
+        FROM 
+            silver.online_retail_1 T1
+        INNER JOIN (
+            SELECT
+                [StockCode],
+                [Description] AS Known_Description,
+                ROW_NUMBER() OVER (
+                    PARTITION BY [StockCode] 
+                    ORDER BY COUNT([Description]) DESC
+                ) AS rn
+            FROM 
+                silver.online_retail_1      WHERE 
+                [Description] IS NOT NULL 
+                AND TRIM([Description]) <> '' 
+            GROUP BY 
+                [StockCode], [Description]
+        ) AS T2 ON T1.[StockCode] = T2.[StockCode]
+        WHERE 
+            T1.[Description] IS NULL
+            AND T2.rn = 1;
+
+
+    UPDATE T1
+        SET [Description] = T2.Known_Description
+        FROM 
+            silver.online_retail_2 T1
+        INNER JOIN (
+            SELECT
+                [StockCode],
+                [Description] AS Known_Description,
+                ROW_NUMBER() OVER (
+                    PARTITION BY [StockCode] 
+                    ORDER BY COUNT([Description]) DESC
+                ) AS rn
+            FROM 
+                silver.online_retail_2
+            WHERE 
+                [Description] IS NOT NULL 
+                AND TRIM([Description]) <> '' 
+            GROUP BY 
+                [StockCode], [Description]
+        ) AS T2 ON T1.[StockCode] = T2.[StockCode]
+        WHERE 
+            T1.[Description] IS NULL
+            AND T2.rn = 1;
+
+    --the column was inspected again
+
+    SELECT count(*) FROM silver.online_retail_1
+    WHERE [Description] IS NULL;
+   
+    SELECT * FROM silver.online_retail_1
+    WHERE [Description] IS NULL;
+
+    SELECT count(*) FROM silver.online_retail_2
+    WHERE [Description] IS NULL;
+   
+    SELECT * FROM silver.online_retail_2
+    WHERE [Description] IS NULL;
+
+    UPDATE silver.online_retail_1
+    SET [Description] = 'NO DESCRIPTION'
+    WHERE [Description] IS NULL
+
+    UPDATE silver.online_retail_2
+    SET [Description] = 'NO DESCRIPTION'
+    WHERE [Description] IS NULL
+
+    --in silver.online_retail_1: column CustomerID has 107927 nulls
+    --in silver.online_retail_2: column CustomerID has 135080 nulls
+    -- for the columns CustomerID the transactions are valid but the clients are anonimous, so the nulls will be transformed as 0
+
+    UPDATE silver.online_retail_1
+    SET [CustomerID] = 0
+    WHERE [CustomerID] IS NULL;
+
+    UPDATE silver.online_retail_2
+    SET [CustomerID] = 0
+    WHERE [CustomerID] IS NULL;
+
+    --check for CustomerID columns nulls
+    --expectation: No Result
+
+    SELECT CustomerID
+    FROM silver.online_retail_1
+    WHERE [CustomerID] IS NULL;
+
+    SELECT CustomerID,
+    COUNT(*)
+    FROM silver.online_retail_1
+    GROUP BY CustomerID
+    HAVING CustomerID IS NULL
+
+    SELECT CustomerID
+    FROM silver.online_retail_2
+    WHERE [CustomerID] IS NULL;
+
+    SELECT CustomerID,
+    COUNT(*)
+    FROM silver.online_retail_2
+    GROUP BY CustomerID
+    HAVING CustomerID IS NULL
+
+
+    --check for unwanted spaces
+    --Expectation: No results
+
+    SELECT Description
+    FROM silver.online_retail_1
+    WHERE Description != TRIM(Description)
+
+    UPDATE silver.online_retail_1
+    SET [Description] = TRIM([Description])
+    WHERE [Description] LIKE '% %';
+
+    SELECT Description
+    FROM silver.online_retail_2
+    WHERE Description != TRIM(Description)
+
+    UPDATE silver.online_retail_2
+    SET [Description] = TRIM([Description])
+    WHERE [Description] LIKE '% %';
+
+    --Data standardization & consistency
+    SELECT DISTINCT country
+    FROM silver.online_retail_1
+
+    UPDATE silver.online_retail_1
+    SET [Country] = UPPER([Country])
+
+     SELECT DISTINCT country
+    FROM silver.online_retail_2
+
+    UPDATE silver.online_retail_2
+    SET [Country] = UPPER([Country])
+
+    --Date Standardization
+
+    ALTER TABLE silver.online_retail_1
+    ADD InvoiceDate_Temp DATE NULL;
+    GO 
+
+    UPDATE silver.online_retail_1
+    SET InvoiceDate = TRIM(InvoiceDate);
+
+    UPDATE silver.online_retail_1
+    SET InvoiceDate = REPLACE(InvoiceDate, '-', '/');
+    GO
+
+    UPDATE silver.online_retail_1
+    SET InvoiceDate_Temp = TRY_CONVERT(DATE, InvoiceDate, 1);
+    GO
+
+    ALTER TABLE silver.online_retail_1
+    DROP COLUMN InvoiceDate;
+    GO
+
+    EXEC sp_rename 'silver.online_retail_1.InvoiceDate_Temp', 'InvoiceDate', 'COLUMN';
+    GO
+
+    
+    ALTER TABLE silver.online_retail_2
+    ADD InvoiceDate_Temp DATE NULL;
+    GO 
+
+    UPDATE silver.online_retail_2
+    SET InvoiceDate = TRIM(InvoiceDate);
+
+    UPDATE silver.online_retail_2
+    SET InvoiceDate = REPLACE(InvoiceDate, '-', '/');
+    GO
+
+    UPDATE silver.online_retail_2
+    SET InvoiceDate_Temp = TRY_CONVERT(DATE, InvoiceDate, 1);
+    GO
+
+    ALTER TABLE silver.online_retail_2
+    DROP COLUMN InvoiceDate;
+    GO
+
+    EXEC sp_rename 'silver.online_retail_2.InvoiceDate_Temp', 'InvoiceDate', 'COLUMN';
+    GO
+
+
+END
+    
