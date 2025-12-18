@@ -1,62 +1,78 @@
-in progress
---create a combined transactions table 
---create a table of transactions for 2009-2011 with minimum information
-IF OBJECT_ID('gold.online_retail_combined', 'U') IS NOT NULL
-    DROP TABLE gold.online_retail_combined;
-GO
 
-SELECT 
-    Invoice, 
-    InvoiceDate, 
-    [Time], 
-    Price AS Price, 
-    Quantity,           
-    CustomerID, 
-    Country
-INTO gold.online_retail_combined
-FROM (
-    SELECT Invoice, InvoiceDate, [Time], Price, Quantity, CustomerID, Country
-    FROM silver.online_retail_1
+
+    -------
+    DDL Script: Create Gold Tables & Views
+    -------
+    Script Purpose:
+    This script will create tables in the 'gold' layer in the data warehouse
+    The gold layer represents the final dimension and fact tables. Each table and view performs transformations and combines data from the silver layer.
+    It is a business-ready dataset
+    ------- 
+   --create a combined transactions invoices table,for 2009-2011, with minimum relevant information
+   --create a product list table
+   --create a client list table
+   --create View of 2009,2010,2011 sales 
+   --create View of countries with the biggest sales in 2009,2010,2011
+    -------
+
+
+   -- create a combined transactions invoices table,for 2009-2011, with minimum relevant information
+    IF OBJECT_ID('gold.online_retail_combined', 'U') IS NOT NULL
+        DROP TABLE gold.online_retail_combined;
+    GO
+
+    SELECT 
+        Invoice, 
+        InvoiceDate, 
+        [Time], 
+        Price AS Price, 
+        Quantity,           
+        CustomerID, 
+        Country
+    INTO gold.online_retail_combined
+    FROM (
+        SELECT Invoice, InvoiceDate, [Time], Price, Quantity, CustomerID, Country
+        FROM silver.online_retail_1
     
-    UNION ALL
+        UNION ALL
     
 
-    SELECT Invoice, InvoiceDate, [Time], Price, Quantity, CustomerID, Country
-    FROM silver.online_retail_2
-) AS CombinedData;
+        SELECT Invoice, InvoiceDate, [Time], Price, Quantity, CustomerID, Country
+        FROM silver.online_retail_2
+    ) AS CombinedData;
 
 
-UPDATE gold.online_retail_combined
-SET Price = REPLACE(TRIM(Price), ',', '.');
-GO
+    UPDATE gold.online_retail_combined
+    SET Price = REPLACE(TRIM(Price), ',', '.');
+    GO
 
-ALTER TABLE gold.online_retail_combined
-ALTER COLUMN Price DECIMAL(18, 2);
-GO
+    ALTER TABLE gold.online_retail_combined
+    ALTER COLUMN Price DECIMAL(18, 2);
+    GO
 
 
-DROP TABLE gold.invoices
+    DROP TABLE gold.invoices_temp
 
-CREATE TABLE gold.invoices AS
-SELECT 
-    Invoice, 
-    InvoiceDate, 
-    [Time], 
-    CustomerID, 
-    Country,
-    SUM(Quantity * Price) AS TotalPrice
-FROM gold.online_retail_combined
-GROUP BY 
-    Invoice, 
-    InvoiceDate, 
-    [Time],
-    CustomerID, 
-    Country;
+    CREATE TABLE gold.invoices_temp AS
+    SELECT 
+        Invoice, 
+        InvoiceDate, 
+        [Time], 
+        CustomerID, 
+        Country,
+        SUM(Quantity * Price) AS TotalPrice
+    FROM gold.online_retail_combined
+    GROUP BY 
+        Invoice, 
+        InvoiceDate, 
+        [Time],
+        CustomerID, 
+        Country;
 
      
      
     SELECT 
-        'gold.invoices' AS TableName,
+        'gold.invoices_temp' AS TableName,
         COUNT(*) AS TotalRows,
         COUNT(CASE WHEN [Invoice] IS NULL THEN 1 END) AS NULL_Count_Invoice,
         COUNT(CASE WHEN [InvoiceDate] IS NULL THEN 1 END) AS NULL_Count_StockCode,
@@ -65,37 +81,37 @@ GROUP BY
         COUNT(CASE WHEN [CustomerID] IS NULL THEN 1 END) AS NULL_Count_CustomerID,
         COUNT(CASE WHEN [Country] IS NULL THEN 1 END) AS NULL_Count_Country
     FROM 
-        gold.invoices;
+        gold.invoices_temp;
 
    SELECT 
        Invoice, 
        COUNT(*) AS NumberOfRows
-       FROM gold.invoices
+       FROM gold.invoices_temp
        GROUP BY Invoice
        HAVING COUNT(*) > 1
        ORDER BY NumberOfRows DESC;
 
-SELECT *
-    FROM gold.invoices
-    WHERE Invoice IN ('492807', '494166', '544926', '499967', '500353', '500827')
-    ORDER BY Invoice;
+    SELECT *
+        FROM gold.invoices_temp
+        WHERE Invoice IN ('492807', '494166', '544926', '499967', '500353', '500827')
+        ORDER BY Invoice;
 
 
-SELECT 
-    Invoice, 
-    MAX(InvoiceDate) AS InvoiceDate, 
-    MIN([Time]) AS [Time],           
-    MAX(CustomerID) AS CustomerID,   
-    MAX(Country) AS Country,   
-    SUM(TotalPrice) AS TotalPrice    
-INTO gold.invoices_summarized
-FROM gold.invoices
-GROUP BY 
-    Invoice;
-GO
+    SELECT 
+        Invoice, 
+        MAX(InvoiceDate) AS InvoiceDate, 
+        MIN([Time]) AS [Time],           
+        MAX(CustomerID) AS CustomerID,   
+        MAX(Country) AS Country,   
+        SUM(TotalPrice) AS TotalPrice    
+    INTO gold.invoices_summarized
+    FROM gold.invoices_temp
+    GROUP BY 
+        Invoice;
+    GO
 
 
-DROP TABLE gold.invoices
+    DROP TABLE gold.invoices_temp
 
     SELECT 
         Invoice, 
@@ -105,7 +121,7 @@ DROP TABLE gold.invoices
         HAVING COUNT(*) > 1
         ORDER BY NumberOfRows DESC;
 
-CREATE VIEW dim_product AS
+
 SELECT 
     StockCode,
     Description,
@@ -133,7 +149,7 @@ SELECT
 
 ALTER TABLE dim_product ADD Type VARCHAR(50);
 
-Create OR ALTER VIEW dim_product AS 
+CREATE TABLE gold.dim_product AS 
 SELECT 
     StockCode,
     Description,
@@ -180,6 +196,128 @@ SELECT
         ) AS CleanedData;
     
     
-   
-  
+   -- create product_list table
+    SELECT 
+        StockCode,
+        Description,
+        UnitPrice,
+        CASE 
+            WHEN StockCode IN ('BANK CHARGES', 'ADJUST', 'PADS') 
+                OR Description LIKE '%error%' 
+                OR Description LIKE '%wrong%'
+                OR Description LIKE '%amazon%' 
+                OR Description LIKE '%lost%' 
+                OR Description LIKE '%missing%'  THEN 'Adjustment'
+
+            WHEN StockCode IN ( 'B') 
+                OR Description LIKE '%amazon%' THEN 'Fee'
+
+            WHEN StockCode IN ('DOT', 'POST') 
+                OR Description LIKE '%POSTAGE%' 
+                OR Description LIKE '%CARRIAGE%' THEN 'Service'
+     
+            WHEN StockCode LIKE '%bad quality%' 
+                 OR Description LIKE '%damaged%' 
+                 OR Description LIKE '%dirty%'
+                 OR Description LIKE '%crushed%'
+                 OR Description LIKE '%rusty%'
+                 OR Description LIKE '%wet%'
+                 OR Description LIKE '%broken%' 
+                 OR Description LIKE '%check%' 
+                 OR Description LIKE '%thrown away%' THEN 'Damaged Stock'
+        
+            ELSE 'Product'
+        END AS Type
+    INTO dim_product_services
+        FROM (
+            SELECT 
+                StockCode, 
+                MAX(Description) AS Description, 
+                MAX(CAST(Price AS DECIMAL(18,2))) AS UnitPrice
+            FROM (
+                SELECT StockCode, Description, Price FROM silver.online_retail_1
+                UNION ALL
+                SELECT StockCode, Description, Price FROM silver.online_retail_2
+            ) AS CombinedProducts
+            WHERE StockCode <> 'D' 
+            GROUP BY StockCode
+        ) AS CleanedData;
     
+    -- other wrong stuff discovered and updated
+    
+    SELECT COUNT(DISTINCT StockCode) AS TotalDistinctStockCodes
+    FROM dbo.dim_product_services;
+
+    SELECT * FROM dbo.dim_product_services;
+
+    DELETE FROM dbo.dim_product_services
+        WHERE Description = 'NO DESCRIPTION' 
+        OR Type = 'Damaged Stock' 
+        OR Type = 'Adjustment'
+        OR Type = 'Fee';
+
+   
+    DELETE FROM dbo.dim_product_services
+    WHERE 
+        Description LIKE '%damages%'
+        OR Description LIKE '%smashed%'
+        OR Description LIKE '%sold as%'
+        OR Description LIKE '%wet%'
+        OR Description LIKE '%mouldy%'
+        OR Description LIKE '%throw away%'
+        OR Description LIKE '%put aside%'
+        OR Description LIKE '%discoloured%'
+        OR Description LIKE '%adjustment%'
+        OR Description LIKE '%reverse mistake%'
+        OR Description LIKE '%test%'
+        OR Description LIKE '%sold in set?%'
+        OR Description IN (
+            'missing', 
+            'found', 
+            'counted', 
+            'returned', 
+            'This is a test product.', 
+            'Given away', 
+            'update', 
+            'CRUK Commission'
+        );
+    
+    ALTER SCHEMA gold TRANSFER dbo.dim_product_services;
+    GO
+    EXEC sp_rename 'gold.dim_product_services', 'dim_product_list';
+    GO
+
+    --create a client list table
+
+    SELECT DISTINCT CustomerID
+        INTO gold.client_list
+        FROM gold.transaction_invoices
+        WHERE CustomerID IS NOT NULL;
+
+   --create a View of 2009,2010,2011 sales 
+
+   CREATE OR ALTER VIEW gold.v_annual_revenue AS
+        SELECT 
+            YEAR(InvoiceDate) AS SalesYear,
+            SUM(TotalPrice) AS TotalRevenue,
+            COUNT(DISTINCT Invoice) AS TotalInvoices, 
+            COUNT(DISTINCT CustomerID) AS UniqueCustomers 
+        FROM gold.transaction_invoices
+        WHERE YEAR(InvoiceDate) IN (2009, 2010, 2011)
+        GROUP BY YEAR(InvoiceDate);
+  
+   --create View of countries with the biggest sales in 2009,2010,2011
+
+   CREATE OR ALTER VIEW gold.v_top_countries_sales AS
+        SELECT 
+            Country,
+            COUNT(Invoice) AS NumberOfTransactions,
+            SUM(TotalPrice) AS TotalRevenue
+        FROM gold.transaction_invoices
+        WHERE YEAR(InvoiceDate) IN (2009, 2010, 2011)
+        GROUP BY Country;
+
+    SELECT * FROM gold.v_top_countries_sales
+    ORDER BY TotalRevenue DESC;
+
+  
